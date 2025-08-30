@@ -28,12 +28,17 @@ author = 'The ChampSim Contributors'
 
 # -- General configuration ---------------------------------------------------
 
+# The environment variable CHAMPSIM_DOCS_USE_REMOTE, if defined to a nonempty
+# string, will cause this script to properly build for GitHub Actions
+local = 'CHAMPSIM_DOCS_USE_REMOTE' not in os.environ
+
 # Add any Sphinx extension module names here, as strings. They can be
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
     'sphinx.ext.githubpages',
     'sphinx.ext.autodoc',
+    'sphinxcontrib.bibtex',
     'breathe'
 ]
 
@@ -54,6 +59,45 @@ breathe_projects = {
 }
 breathe_default_project = project
 
+# -- sphinxcontrib.bibtex configuration --------------------------------------
+bibtex_bibfiles = ['../../PUBLICATIONS_USING_CHAMPSIM.bib']
+
+import pybtex.plugin
+from pybtex.style.sorting import BaseSortingStyle
+from pybtex.style.formatting.unsrt import Style as UnsrtStyle
+
+class YearAuthorTitleSort(BaseSortingStyle):
+    def sorting_key(self, entry):
+        year_key = 99999 - int(entry.fields.get('year', '99999'))
+        return (year_key, YearAuthorTitleSort.author_editor_key(entry), entry.fields.get('title', ''))
+
+    @staticmethod
+    def persons_key(persons):
+        return '   '.join(YearAuthorTitleSort.person_key(person) for person in persons)
+
+    @staticmethod
+    def person_key(person):
+        return '  '.join((
+            ' '.join(person.prelast_names + person.last_names),
+            ' '.join(person.first_names + person.middle_names),
+            ' '.join(person.lineage_names),
+        )).lower()
+
+    @staticmethod
+    def author_editor_key(entry):
+        if entry.persons.get('author'):
+            return YearAuthorTitleSort.persons_key(entry.persons['author'])
+        elif entry.persons.get('editor'):
+            return YearAuthorTitleSort.persons_key(entry.persons['editor'])
+        else:
+            return ''
+
+class YATStyle(UnsrtStyle):
+    default_sorting_style = 'year_author_title'
+
+pybtex.plugin.register_plugin('pybtex.style.sorting', 'year_author_title', YearAuthorTitleSort)
+pybtex.plugin.register_plugin('pybtex.style.formatting', 'year_author_title', YATStyle)
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
@@ -64,7 +108,7 @@ html_theme = 'nature'
 def get_cmd_lines(cmd):
     return subprocess.run(cmd, capture_output=True).stdout.decode().splitlines()
 
-@functools.cache
+@functools.lru_cache(maxsize=1)
 def get_current_branch():
     return get_cmd_lines(['git', 'rev-parse', '--abbrev-ref', 'HEAD'])[0]
 
